@@ -19,9 +19,9 @@ const WasmPage = () => {
 
       const imports = {
         env: {
-          console_log: (ptr) => {
+          console_log: (ptr, length) => {
             const memory = instance.instance.exports.memory.buffer;
-            const encodedString = new Uint8Array(memory, ptr, 13); // Length of "Hello, World!"
+            const encodedString = new Uint8Array(memory, ptr, length);
             const decodedString = new TextDecoder().decode(encodedString);
             console.log(`Log argument:`, decodedString, `Type:`, typeof decodedString);
             setLogs((prevLogs) => [...prevLogs, decodedString]);
