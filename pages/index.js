@@ -1,19 +1,17 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { decode } from '@webassemblyjs/wasm-parser';
+import { lowerI64Imports } from '@wasmer/wasm-transformer';
 
 const WasmPage = () => {
   const [result, setResult] = useState('');
   const [error, setError] = useState('');
   const [logs, setLogs] = useState([]);
+  const [language, setLanguage] = useState('typescript'); // Default language
 
-  const handleFileChange = async (event) => {
-    const file = event.target.files[0];
-    if (!file) return;
 
+
+  const executeTypeScriptWasm = async (buffer) => {
     try {
-      const buffer = await file.arrayBuffer();
-      console.log('Wasm file buffer:', buffer);
-
       const module = decode(buffer);
       console.log('Decoded Wasm module:', module);
 
@@ -34,20 +32,83 @@ const WasmPage = () => {
       console.log('Instantiated Wasm instance:', instance);
       console.log('Exported functions:', Object.keys(instance.instance.exports));
 
-      // Execute your Wasm function here and update the result state
       instance.instance.exports.run();
       setResult('Wasm function executed successfully');
       setError('');
     } catch (err) {
       console.error('Error:', err);
       setError(err.message);
-      setError('');
     }
   };
+
+  const executePythonWasm = async (buffer) => {
+    try {
+      const imports = {
+        env: {
+          log: (ptr, length) => {
+            // Ensure the memory is defined before trying to use it
+            if (!instance.exports.memory) {
+              console.error('Memory is not exported from the WebAssembly module');
+              return;
+            }
+            const buffer = new Uint8Array(instance.exports.memory.buffer, ptr, length);
+            const message = new TextDecoder().decode(buffer);
+            console.log(message);
+          },
+        },
+      };
+  
+      const module = await WebAssembly.compile(buffer);
+      const instance = await WebAssembly.instantiate(module, imports);
+      const exportedFunctions = instance.exports;
+  
+      // Call the exported functions or interact with the instance as needed
+      exportedFunctions.helloWorld();
+  
+      setResult('Python Wasm function executed successfully');
+      setError('');
+    } catch (err) {
+      console.error('Error executing Python Wasm:', err);
+      setError(err.message);
+    }
+  };
+
+  const handleFileChange = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+  
+    try {
+      const buffer = await file.arrayBuffer();
+      console.log('Wasm file buffer:', buffer);
+  
+      switch (language) {
+        case 'typescript':
+          executeTypeScriptWasm(buffer);
+          break;
+        case 'python':
+          executePythonWasm(buffer);
+          break;
+        default:
+          console.error('Unsupported language');
+          setError('Selected language is not supported for execution');
+      }
+    } catch (err) {
+      console.error('Error loading file:', err);
+      setError(err.message);
+    }
+  };
+
 
   return (
     <div>
       <h1>WebAssembly Execution</h1>
+      <div>
+        <label>Select Language: </label>
+        <select onChange={(e) => setLanguage(e.target.value)} value={language}>
+          <option value="typescript">TypeScript</option>
+          <option value="python">Python</option>
+        </select>
+      </div>
       <input type="file" accept=".wasm" onChange={handleFileChange} />
       {error && <p style={{ color: 'red' }}>{error}</p>}
       {result && <p>Result: {result}</p>}
