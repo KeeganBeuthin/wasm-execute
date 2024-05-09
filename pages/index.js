@@ -1,113 +1,50 @@
-import { useState, useEffect } from "react";
-import { decode } from "@webassemblyjs/wasm-parser";
-import { lowerI64Imports } from "@wasmer/wasm-transformer";
+import { useState } from "react";
 
 const WasmPage = () => {
   const [result, setResult] = useState("");
   const [error, setError] = useState("");
   const [logs, setLogs] = useState([]);
-  const [language, setLanguage] = useState("typescript");
 
-  const executeTypeScriptWasm = async (buffer) => {
+  const executeWasm = async (buffer) => {
     try {
-      const module = decode(buffer);
-      console.log("Decoded Wasm module:", module);
-
+      // Compile the WebAssembly module from the buffer
+      const module = await WebAssembly.compile(buffer);
+      let instance; // Declare instance here but define it below
+  
+      // Define imports object here, ensuring it's defined after instance is initialized
       const imports = {
         env: {
-          console_log: (ptr, length) => {
-            const memory = instance.instance.exports.memory.buffer;
-            const encodedString = new Uint8Array(memory, ptr, length);
-            const decodedString = new TextDecoder().decode(encodedString);
-            console.log(
-              `Log argument:`,
-              decodedString,
-              `Type:`,
-              typeof decodedString
-            );
-            setLogs((prevLogs) => [...prevLogs, decodedString]);
-          },
-          abort: () => console.log("Abort called"),
-        },
-      };
-
-      const instance = await WebAssembly.instantiate(buffer, imports);
-      console.log("Instantiated Wasm instance:", instance);
-      console.log(
-        "Exported functions:",
-        Object.keys(instance.instance.exports)
-      );
-
-      instance.instance.exports.run();
-      setResult("Wasm function executed successfully");
-      setError("");
-    } catch (err) {
-      console.error("Error:", err);
-      setError(err.message);
-    }
-  };
-
-  const executePythonWasm = async (buffer) => {
-    try {
-      const imports = {
-        env: {
+          // Generalized log function used by different languages
           log: (ptr, length) => {
-            if (!instance.exports.memory) {
-              console.error(
-                "Memory is not exported from the WebAssembly module"
-              );
-              return;
-            }
-            const buffer = new Uint8Array(
-              instance.exports.memory.buffer,
-              ptr,
-              length
-            );
-            const message = new TextDecoder().decode(buffer);
+            const memoryBuffer = new Uint8Array(instance.exports.memory.buffer, ptr, length);
+            const message = new TextDecoder().decode(memoryBuffer);
             console.log(message);
+            setLogs((prevLogs) => [...prevLogs, message]);
           },
+          console_log: (ptr, length) => imports.env.log(ptr, length), // Redirect to generic log for TypeScript
+          print: (ptr, length) => imports.env.log(ptr, length),        // Redirect to generic log for Java
+          abort: () => console.error("Aborted")                         // Common abort function
         },
       };
-
-      const module = await WebAssembly.compile(buffer);
-      const instance = await WebAssembly.instantiate(module, imports);
-      const exportedFunctions = instance.exports;
-
-      exportedFunctions.helloWorld();
-
-      setResult("Python Wasm function executed successfully");
+  
+      // Instantiate the WASM module with the imports
+      instance = await WebAssembly.instantiate(module, imports);
+  
+      // Dynamically call the main function or handle known exported functions
+      const exportedFunction = instance.exports.main || instance.exports.helloWorld || instance.exports.run;
+      if (exportedFunction) {
+        exportedFunction(); // Execute the function based on its presence
+        setResult("WASM function executed successfully");
+      } else {
+        throw new Error("No known function to execute found in the WASM module");
+      }
       setError("");
     } catch (err) {
-      console.error("Error executing Python Wasm:", err);
+      console.error("Error executing WASM:", err);
       setError(err.message);
     }
   };
-
-  const executeJavaWasm = async (buffer) => {
-    try {
-      const imports = {
-        env: {
-          print: (ptr, length) => {
-            const memory = instance.exports.memory.buffer;
-            const string = new Uint8Array(memory, ptr, length);
-            const message = new TextDecoder().decode(string);
-            console.log(`${message}`);
-            setLogs((prevLogs) => [...prevLogs, `${message}`]);
-          },
-        },
-      };
-
-      const module = await WebAssembly.compile(buffer);
-      const instance = await WebAssembly.instantiate(module, imports);
-      instance.exports.helloWorld();
-
-      setResult("Java Wasm function executed successfully");
-      setError("");
-    } catch (err) {
-      console.error("Error executing Java Wasm:", err);
-      setError(err.message);
-    }
-  };
+  
 
   const handleFileChange = async (event) => {
     const file = event.target.files[0];
@@ -115,22 +52,8 @@ const WasmPage = () => {
 
     try {
       const buffer = await file.arrayBuffer();
-      console.log("Wasm file buffer:", buffer);
-
-      switch (language) {
-        case "typescript":
-          executeTypeScriptWasm(buffer);
-          break;
-        case "python":
-          executePythonWasm(buffer);
-          break;
-        case "java":
-          executeJavaWasm(buffer);
-          break;
-        default:
-          console.error("Unsupported language");
-          setError("Selected language is not supported for execution");
-      }
+      console.log("WASM file buffer:", buffer);
+      executeWasm(buffer);
     } catch (err) {
       console.error("Error loading file:", err);
       setError(err.message);
@@ -140,14 +63,6 @@ const WasmPage = () => {
   return (
     <div>
       <h1>WebAssembly Execution</h1>
-      <div>
-        <label>Select Language: </label>
-        <select onChange={(e) => setLanguage(e.target.value)} value={language}>
-          <option value="typescript">TypeScript</option>
-          <option value="python">Python</option>
-          <option value="java">Java</option>
-        </select>
-      </div>
       <input type="file" accept=".wasm" onChange={handleFileChange} />
       {error && <p style={{ color: "red" }}>{error}</p>}
       {result && <p>Result: {result}</p>}
